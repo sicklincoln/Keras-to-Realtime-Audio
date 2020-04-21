@@ -1,0 +1,279 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<title>JavaScript Web Audio API MMLL test</title>
+<script src="MMLL.js"></script>
+
+<!--<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.0.0/dist/tf.min.js"></script>-->
+<!--<script src="https://cdn.jsdelivr.net/npm/onnxjs/dist/onnx.min.js"></script>-->
+<script src="onnx.min.js"></script>
+</head>
+
+<body>
+
+<h1>MMLL testing Keras spectral processing model via ONNX</h1>
+
+<p>Browsers supporting Web Audio API only.</p>
+<p>Must be run server side. You can use python to run a web server on your own machine easily, command line:<br> python2: python -m SimpleHTTPServer 8000<br>
+python3: python -m http.server 8000</p>
+
+<script type="text/javascript">
+    
+    "use strict";
+
+    var model;
+    var i; //general reusable counter variable
+    
+   var fftsize = 4096;
+    var hopsize = 2048;
+    var halffftsize = 2048;
+    var scalefactor = 1/5.456533600026138; //1/151.1; //1.0/fftsize; //1.0/(fftsize*fftsize); //for power
+    var pastframes = 1; //5;//5;
+    
+    var whichfftbins = [];
+    
+    for (var i = 0; i < halffftsize; i++) {
+        whichfftbins.push(i);
+    }
+    
+    
+    //var whichfftbins = [ 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 60, 61, 62, 63, 64, 65, 67, 68, 69, 71, 72, 73, 75, 76, 77, 78, 80, 81, 82, 85, 86, 87, 90, 91, 92, 95, 96, 97, 98, 101, 102, 103, 104, 107, 108, 109, 110, 113, 114, 115, 116, 120, 121, 122, 123, 127, 128, 129, 130, 135, 136, 137, 138, 143, 144, 145, 146, 151, 152, 153, 154, 155, 160, 161, 162, 163, 164, 170, 171, 172, 173, 174, 180, 181, 182, 183, 184, 190, 191, 192, 193, 194, 195, 202, 203, 204, 205, 206, 207, 214, 215, 216, 217, 218, 219, 227, 228, 229, 230, 231, 232, 240, 241, 242, 243, 244, 245, 246, 254, 255, 257, 258, 259, 260, 270, 271, 272, 273, 274, 275, 276, 286, 287, 288, 289, 291, 292, 303, 304, 306, 307, 308, 309, 321, 322, 324, 325, 326, 327, 328, 340, 341, 343, 344, 346, 347, 360, 361, 364, 365, 366, 367, 368, 381, 382, 385, 386, 388, 389, 390, 404, 405, 408, 409, 411, 412, 413, 428, 429, 432, 433, 436, 437, 454, 455, 458, 459, 462, 463, 481, 482, 485, 486, 489, 490, 491, 509, 510, 514, 515, 518, 519, 520, 540, 541, 545, 546, 549, 550, 551, 572, 573, 577, 578, 582, 583, 584, 606, 607, 612, 613, 617, 618, 642, 643, 648, 649, 653, 654, 655, 680, 681, 687, 688, 692, 693, 694, 720, 721, 728, 729, 733, 734, 735, 763, 764, 771, 772, 777, 778, 779, 809, 810, 817, 818, 823, 824, 825, 857, 858, 865, 866, 872, 873, 874, 908, 909, 917, 918, 924, 925, 926, 962, 963, 971, 972, 979, 980, 981, 1019, 1020, 1029, 1030, 1037, 1038, 1039, 1040, 1080, 1081, 1091, 1092, 1099, 1100, 1101, 1144, 1145, 1155, 1156, 1165, 1166, 1167, 1212, 1213, 1224, 1225, 1234, 1235, 1236, 1284, 1285, 1297, 1298, 1307, 1308, 1309, 1310, 1360, 1361, 1374, 1375, 1385, 1386, 1387, 1388, 1441, 1442, 1456, 1457, 1467, 1468, 1469, 1470 ];
+    
+    var numbinsused = whichfftbins.length; //379; //length(whichfftbins)
+    var inputsize = numbinsused * pastframes;
+
+    //var inputsize = pastframes * halffftsize;
+    var previousframedata = new Array(inputsize);
+    
+    
+    
+    
+    //1/N factor for IFFT
+    var gain = 1/fftsize; //=1 leads to lots of distortion but really fun noise music
+    
+    
+    var audioblocksize = hopsize; //convenient, but extra code needed if different to output samples per block from hopsize buffer
+    //256 = lowest latency possible
+    
+    var stft;
+    var overlapadd;
+    var ifftoutput = new Float32Array(fftsize);
+    var oaoutput = new Float32Array(hopsize);
+    var phases = new Float32Array(halffftsize);
+    //will aim to always be latest, but could fall behind, will have at least latency of a block
+    var outputspectra = new Float32Array(halffftsize);
+  
+  var myOnnxSession;
+  var firstrun = true;
+  
+    var setup = function SetUp(sampleRate) {
+        
+        stft = new MMLLSTFT(fftsize,hopsize,0); //no windowing
+        
+        overlapadd = new MMLLOverlapAdd(fftsize,hopsize,1); //triangle windows
+       
+        for(i=0; i<inputsize; ++i)
+            previousframedata[i] = 0.0;
+            
+        for (i = 0; i < halffftsize; ++i)
+            outputspectra[i] = 0.0;
+          
+            
+        
+    };
+
+
+
+//running sync version too slow and tanks realtime thread
+async function gettfdata(previousframedata) {
+    
+    // run this in an async method:
+    //https://developer.mozilla.org/en-US/docs/Web/API/Performance/now
+    var t0 = performance.now();
+    
+    //[1,inputsize,1]
+    var inputdata = [new Tensor(previousframedata, "float32", [1,inputsize])];
+
+    myOnnxSession.run(inputdata).then(output => {
+                                      // consume the output
+                                      const outputTensor = output.values().next().value;
+                                      //console.log(`model output tensor: ${outputTensor.data}.`);
+                                  
+                                      outputspectra = outputTensor.data;
+                                      
+                                      
+                                      //takes up to 25 milliseconds
+                                      var t1 = performance.now();
+                                      
+                                      console.log("Call to ONNX took " + (t1 - t0) + " milliseconds.");
+                                      
+                                      });
+    
+    
+}
+
+
+
+var callback = function CallBack(input,output,n) {
+    
+    //var chord = chorddetector.next(input.monoinput);
+    
+    //not stereo, just operate on mono for now (otherwise duplicate code in parallel for left and right streams)
+    var ready = stft.next(input.monoinput);
+    
+    var rms = 0.0;
+    
+    var amp = 0;
+    
+    for(i=0; i<input.monoinput.length; ++i) {
+        amp = input.monoinput[i];
+        rms +=  amp*amp;
+    }
+    
+    rms = Math.sqrt(rms/input.monoinput.length);
+    
+    
+    if(ready) {
+        
+        var fftdata = stft.powers;
+        var complex = stft.complex;
+        var real, imag;
+       
+        //needed since trained net on already divided data
+        //scale by dividing by fftsize
+        for(i=0; i<halffftsize; ++i) {
+            
+            
+            
+        fftdata[i] = 0.5*Math.log(fftdata[i]+1)*scalefactor; //Math.sqrt(fftdata[i])*scalefactor; //*= scalefactor;
+        
+        real = complex[2*i];
+        imag = complex[2*i+1];
+        
+        phases[i] = Math.atan(imag, real);
+        }
+        
+        //manipulate data if you like here
+        
+        //use convnet on it
+        
+        //var v = new convnetjs.Vol([1.2, 3.5, 3.6]);
+        
+        //var v2 = new convnetjs.Vol(1,1,fftsize+2,fftdata);
+        
+        //update data store, move everything right
+        
+        var top = inputsize-1;
+        var previous = top - numbinsused;
+        
+        for (i = 0; i < inputsize - numbinsused; ++i)
+        previousframedata[top-i] = previousframedata[previous-i];
+        
+         for (i = 0; i < numbinsused; ++i)
+         previousframedata[i] = fftdata[whichfftbins[i]];
+         
+        //otherwise convnet.js doesn't recognise the FloatArray as an array
+        //var spectrumtotransform = new convnetjs.Vol(pastframes,halffftsize,1); //new convnetjs.Vol(1,1,inputsize);
+        
+        //for (i = 0; i < inputsize; ++i)
+         //   spectrumtotransform.w[i] = previousframedata[i];
+        
+        //var outputspectra = net.forward(spectrumtotransform);
+        
+        gettfdata(previousframedata);
+        
+        var fftdata = stft.complex;
+        
+        var magnitude;
+        
+        for (i = 0; i < halffftsize; ++i) {
+            
+            magnitude = Math.exp((outputspectra[i]/scalefactor))-1;
+            
+            //return to magnitude not power
+            fftdata[2*i] =  magnitude * Math.cos(phases[i]);
+            fftdata[2*i+1] = magnitude * Math.sin(phases[i]);
+            
+        }
+        
+        fftdata[fftsize] = 0;
+        fftdata[fftsize+1] = 0;
+        
+        
+        //then inversefft
+        stft.fft.inverse(fftdata,ifftoutput);
+        
+        
+        //scale typically by 1/N
+        
+        for (i = 0; i < fftsize; ++i)
+            ifftoutput[i] *= gain * rms;
+        
+        
+        //then overlap add
+        overlapadd.next(ifftoutput,oaoutput);
+        
+    }
+    
+    //copy from oaoutput to actual sample output, easy since blocksize = hopsize
+    
+    //for each sample
+    for (i = 0; i < n; ++i) {
+        
+        output.outputL[i] = oaoutput[i];
+        output.outputR[i] = oaoutput[i];
+        
+    }
+    
+};
+
+var gui;
+
+async function f1() {
+    
+    //onnx.backend = "";
+    
+    // create a session
+    myOnnxSession = new onnx.InferenceSession('webgl'); //webgl
+    //'cpu'
+    //'wasm': WebAssembly backend
+    //'webgl'
+    
+    var numbers = Array(inputsize);
+    
+    for (var i = 0; i < numbers.length; i++)
+      numbers[i] = 0.0;
+    
+    //[1,halffftsize,pastframes,1]
+    var inputdatazero = [new Tensor(numbers,"float32", [1,inputsize])];
+
+    
+    // load the ONNX model file
+    //models/DNNecstasy10epochs.onnx
+    myOnnxSession.loadModel("models/DNNTheHype.onnx").then(output => {
+
+console.log("loaded model");
+
+myOnnxSession.run(inputdatazero).then(output => {
+      // consume the output
+      
+      const outputTensor = output.values().next().value;
+      console.log(`model output tensor: ${outputTensor.data}.`);
+      outputspectra = outputTensor.data;
+      
+      });                                                                    });
+    
+};
+
+
+f1();
+
+gui = new MMLLBasicGUISetup(callback,setup,audioblocksize,true,true);
+
+
+
+</script>
+
+</body>
+</html>

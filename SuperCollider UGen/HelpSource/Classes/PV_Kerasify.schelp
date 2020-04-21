@@ -1,0 +1,51 @@
+TITLE:: PV_Kerasify
+summary:: load a deep learning Keras model to process spectral frames, via the Kerasify C++ library
+related:: Classes/FFT, Classes/IFFT
+categories:: UGens>FFT
+
+DESCRIPTION::
+load a deep learning Keras model to process spectral frames, via the Kerasify C++ library
+
+CLASSMETHODS::
+
+method::new
+
+argument::buffer
+
+FFT buffer.
+
+argument::amortiseflag
+
+If 0 (default) uses a background thread for running the model in one go on each spectral frame
+
+If 1 or greater, amortises load over control periods, keeps everything after constructor within the realtime thread. Amortisation is over a partial set of units of each layer of the network, calculating each block layerunits/amortiseflag. Note that it must be the case that (numlayers*amortiseflag)+1 <= (fftsize/blocksize) = 2048/64 = 32 else the next spectral frame will turn up before the amortised calculations are done. For the basic 2 layer shallow models, a maximum value would be 15 (2*15+1 =31 < 32)
+
+argument::path
+
+String path to a model exported from the python deep learning library keras (link::https://keras.io::), by the kerasify C++ library (link::https://github.com/moof2k/kerasify::)
+
+
+EXAMPLES::
+
+code::
+
+
+b = Buffer.read(s, Platform.resourceDir +/+ "sounds/a11wlk01.wav");
+
+(
+{
+var chain, in;
+
+	//in = SoundIn.ar;
+	in = PlayBuf.ar(1,b,loop:1);
+
+	chain = FFT(LocalBuf(4096), in, 0.5, -1); //rectangular windowing
+
+	chain = PV_Kerasify(chain,0,"/data/durham/code/python/keras/DNNectasy100epochs.model");
+
+	Limiter.ar(IFFT(chain));
+
+}.scope
+)
+
+::
