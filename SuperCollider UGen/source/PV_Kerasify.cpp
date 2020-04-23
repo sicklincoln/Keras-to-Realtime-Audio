@@ -61,10 +61,15 @@ double cpu_time_used;
 InterfaceTable *ft; 
 
 
-
+//those supported by kerasify, keras has a few more
+//https://keras.io/activations/
 enum {
+    activation_linear,
     activation_relu,
-    activation_linear
+    activation_softplus,
+    activation_sigmoid,
+    activation_tanh,
+    activation_hardsigmoid
 };
 
 //public by default
@@ -112,6 +117,39 @@ void CalculateNCLayer(NCLayer* layer, float * input) {
             case activation_relu:
             if(unitsum<0.0) unitsum = 0.0;
             break;
+            
+            case activation_softplus:
+            unitsum = log(1.0 + exp(unitsum));
+            break;
+            case activation_sigmoid: {
+                float x = unitsum;
+                
+                if (x >= 0) {
+                    unitsum = 1.0 / (1.0 + exp(-x));
+                } else {
+                    float z = exp(x);
+                    unitsum = z / (1.0 + z);
+                }
+            }
+            break;
+            case activation_tanh:
+            unitsum = tanh(unitsum);
+            break;
+            case activation_hardsigmoid: {
+                
+                float x = (unitsum * 0.2) + 0.5;
+                
+                if (x <= 0) {
+                    unitsum = 0.0;
+                } else if (x >= 1) {
+                    unitsum = 1.0;
+                } else {
+                    unitsum = x;
+                }
+                
+            }
+            break;
+            
             default:
             break;
         }
@@ -164,6 +202,39 @@ void CalculateNCLayerAmort(NCLayer* layer, float * input, int startunit, int uni
             case activation_relu:
             if(unitsum<0.0) unitsum = 0.0;
             break;
+            
+            case activation_softplus:
+            unitsum = log(1.0 + exp(unitsum));
+            break;
+            case activation_sigmoid: {
+                float x = unitsum;
+                
+                if (x >= 0) {
+                    unitsum = 1.0 / (1.0 + exp(-x));
+                } else {
+                    float z = exp(x);
+                    unitsum = z / (1.0 + z);
+                }
+            }
+            break;
+            case activation_tanh:
+            unitsum = tanh(unitsum);
+            break;
+            case activation_hardsigmoid: {
+                
+                float x = (unitsum * 0.2) + 0.5;
+                
+                if (x <= 0) {
+                    unitsum = 0.0;
+                } else if (x >= 1) {
+                    unitsum = 1.0;
+                } else {
+                    unitsum = x;
+                }
+                
+            }
+            break;
+            
             default:
             break;
         }
@@ -398,7 +469,17 @@ void KerasifyMsg::Perform()
                 
                 unit->layers[k].activationtype = activation_linear;
                 
+                
                 if(type == KerasLayerActivation::ActivationType::kRelu) unit->layers[k].activationtype = activation_relu;
+                
+                if(type == KerasLayerActivation::ActivationType::kSoftPlus) unit->layers[k].activationtype = activation_softplus;
+                
+                if(type == KerasLayerActivation::ActivationType::kSigmoid) unit->layers[k].activationtype = activation_sigmoid;
+                
+                if(type == KerasLayerActivation::ActivationType::kTanh) unit->layers[k].activationtype = activation_tanh;
+                
+                if(type == KerasLayerActivation::ActivationType::kHardSigmoid) unit->layers[k].activationtype = activation_hardsigmoid;
+                
                 
                 
                 printf("layer number %d type %d inputsize %d numunits %d \n",k, type, inputsize, unit->layers[k].numunits);
