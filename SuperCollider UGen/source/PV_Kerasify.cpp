@@ -246,7 +246,170 @@ void CalculateNCLayerAmort(NCLayer* layer, float * input, int startunit, int uni
     
 }
 
+//public by default
+struct NCNet {
+    
+    //roll own neural network
+    float * input;
+    int numlayers;
+    NCLayer * layers;
+    //float * output;
+    
+};
 
+
+void InterpolateNCNetLayer(NCNet* netinterp, NCNet* net1,NCNet* net2, float t, int whichlayer) {
+    
+    //do nothing if not possible to act on valid layer
+    if(whichlayer>net1->numlayers) return;
+    
+    //could check inputsize and numunits match at this layer for net1 and net2
+    if( (net1->layers[whichlayer].numunits) != (net2->layers[whichlayer].numunits)) return;
+    if( (net1->layers[whichlayer].inputsize) != (net2->layers[whichlayer].inputsize)) return;
+    
+    NCLayer * target = &(netinterp->layers[whichlayer]); //netinterp->layers + k
+    
+    int numunits = target->numunits;
+    int numweights = target->numunits * target->inputsize;
+    float oneminust = 1.0-t;
+    
+    float * matrix1 = (net1->layers[whichlayer].connectionmatrix);
+    float * matrix2 = (net2->layers[whichlayer].connectionmatrix);
+    float * bias1 = (net1->layers[whichlayer].bias);
+    float * bias2 = (net2->layers[whichlayer].bias);
+    
+    int i;
+    
+    for(i = 0; i<numweights; ++i)
+    target->connectionmatrix[i] = (oneminust * matrix1[i]) + (t * matrix2[i]);
+    
+    for(i = 0; i<numunits; ++i)
+    target->bias[i] = (oneminust * bias1[i]) + (t * bias2[i]);
+    
+    
+}
+
+
+//otherwise will leave interpolated net with interoplated layers even when swapping elsewhere
+void RestoreNCNetLayer(NCNet* netinterp, NCNet* net1, int whichlayer) {
+    
+    //do nothing if not possible to act on valid layer
+    if(whichlayer>net1->numlayers) return;
+    
+    //could check inputsize and numunits match at this layer for net1 and netinterp
+    if( (net1->layers[whichlayer].numunits) != (netinterp->layers[whichlayer].numunits)) return;
+    if( (net1->layers[whichlayer].inputsize) != (netinterp->layers[whichlayer].inputsize)) return;
+    
+    NCLayer * target = &(netinterp->layers[whichlayer]); //netinterp->layers + k
+    
+    int numunits = target->numunits;
+    int numweights = target->numunits * target->inputsize;
+    
+    float * matrix1 = (net1->layers[whichlayer].connectionmatrix);
+    float * bias1 = (net1->layers[whichlayer].bias);
+    
+    int i;
+    
+    for(i = 0; i<numweights; ++i)
+    target->connectionmatrix[i] = matrix1[i];
+    
+    for(i = 0; i<numunits; ++i)
+    target->bias[i] = bias1[i];
+    
+    
+}
+
+
+
+
+void DestroyNCNet(NCNet* net) {
+    
+    for (int k=0; k<net->numlayers; ++k) {
+        
+        delete [] net->layers[k].connectionmatrix;
+        delete [] net->layers[k].bias;
+        delete [] net->layers[k].output;
+        
+    }
+    
+    delete [] net->layers;
+    delete [] net->input;
+    
+    
+}
+
+void InitialiseNCNetfromKerasModel(NCNet* net, KerasModel* model) {
+    
+    net->input = new float[2048];
+    
+    net->numlayers = model->layers_.size();
+    
+    net->layers = new NCLayer[net->numlayers];
+    
+    for (int k=0; k<net->numlayers; ++k) {
+        
+        //inputsize  * outputsize
+        Tensor * weights_ = &(((KerasLayerDense*)model->layers_[k])->weights_);
+        Tensor * biases_ = &(((KerasLayerDense*)model->layers_[k])->biases_);
+        
+        float * matrix = new float[weights_->dims_[0] * weights_->dims_[1]];
+        float * bias = new float[biases_->dims_[0]];
+        
+        int inputsize = weights_->dims_[0];
+        
+        net->layers[k].inputsize = inputsize;
+        net->layers[k].numunits = weights_->dims_[1];
+        
+        
+        for (int i = 0; i < weights_->dims_[1]; i++) {
+            
+            float * target = matrix + (inputsize*i);
+            
+            for (int j = 0; j < weights_->dims_[0]; j++) {
+                target[j] = (*weights_)(j, i);
+            }
+        }
+        
+        for (int i = 0; i < biases_->dims_[0]; i++) {
+            bias[i] = (*biases_)(i);
+        }
+        
+        net->layers[k].connectionmatrix = matrix;
+        net->layers[k].bias = bias;
+        
+        net->layers[k].output = new float[biases_->dims_[0]];
+        
+        
+        int type = ((KerasLayerDense*)model->layers_[k])->activation_.activation_type_;
+        //KerasLayerActivation::ActivationType
+        
+        net->layers[k].activationtype = activation_linear;
+        
+        
+        if(type == KerasLayerActivation::ActivationType::kRelu) net->layers[k].activationtype = activation_relu;
+        
+        if(type == KerasLayerActivation::ActivationType::kSoftPlus) net->layers[k].activationtype = activation_softplus;
+        
+        if(type == KerasLayerActivation::ActivationType::kSigmoid) net->layers[k].activationtype = activation_sigmoid;
+        
+        if(type == KerasLayerActivation::ActivationType::kTanh) net->layers[k].activationtype = activation_tanh;
+        
+        if(type == KerasLayerActivation::ActivationType::kHardSigmoid) net->layers[k].activationtype = activation_hardsigmoid;
+        
+        
+        
+        printf("layer number %d type %d inputsize %d numunits %d \n",k, type, inputsize, net->layers[k].numunits);
+        
+    }
+    
+    
+    
+    printf("Set up internal model data structure with %d layers\n", net->numlayers);
+    
+    
+    
+}
+    
 
 
 //KerasModel * g_model;
@@ -276,9 +439,12 @@ struct PV_Kerasify : public Unit
     
     //roll own neural network
     float * input;
-    int numlayers;
-    NCLayer * layers;
-    float * output;
+    //int numlayers;
+    //NCLayer * layers;
+    //float * output;
+    
+    NCNet net;
+    
     
     int amortisationflag;
     int amortisationcounter;
@@ -290,6 +456,63 @@ struct PV_Kerasify : public Unit
     
     
     
+};
+
+
+
+struct PV_KerasifyActivationFromBuffer : public Unit
+{
+    char * path;
+    
+    KerasModel * model;
+    
+    float * phases; //[2048];
+    float * spectrumnow;
+    
+    bool modelready;
+    bool newoutput;
+    
+    float * input;
+    
+    NCNet net;
+
+    int buffersize;
+    float * buffer;
+    int layertoactivate;
+    
+};
+
+
+
+
+
+struct PV_DNNMorph : public Unit
+{
+    char * path1;
+    char * path2;
+    
+    KerasModel * model1;
+    KerasModel * model2;
+    
+    float * phases; //[2048];
+    float * spectrumnow;
+
+    bool modelready;
+    bool newoutput;
+    
+    float * input;
+    float * input2; //needed for calculating with both nets in parallel
+    
+    NCNet net1;
+    NCNet net2;
+    
+    NCNet netinterpolation;
+    
+    float interpolation; //from net1 to net2
+    int layertointerpolate; //which layer
+    int preorpost; //pre = interpolate weights before function calculation, post= interpolate outputs
+    
+    //amortisation not supported, must use background thread
 };
 
 
@@ -306,6 +529,12 @@ enum {
     kCmd_Ctor,
     kCmd_Run,
     kCmd_Dtor,
+    kCmd_CtorDNNMorph,
+    kCmd_RunDNNMorph,
+    kCmd_DtorDNNMorph,
+    kCmd_Ctor2,
+    kCmd_Run2,
+    kCmd_Dtor2,
 };
 
 struct KerasifyMsg
@@ -319,6 +548,8 @@ struct KerasifyMsg
     //        int32 mFrames;
     
     PV_Kerasify * unit;
+    PV_DNNMorph * morph;
+    PV_KerasifyActivationFromBuffer * unit2;
     
     void Perform();
 };
@@ -358,11 +589,11 @@ void KerasifyMsg::Perform()
             
             float * input = unit->input;
             
-            for (int k=0; k<unit->numlayers; ++k) {
+            for (int k=0; k<unit->net.numlayers; ++k) {
                 
-                CalculateNCLayer(&unit->layers[k],input);
+                CalculateNCLayer(&(unit->net.layers[k]),input);
                 
-                input = unit->layers[k].output;
+                input = unit->net.layers[k].output;
                 
             }
             
@@ -425,6 +656,11 @@ void KerasifyMsg::Perform()
             //copy model data to my own local struct
             
             unit->input = new float[2048];
+            
+            InitialiseNCNetfromKerasModel(&(unit->net), unit->model);
+            
+            
+            /*
             
             unit->numlayers = unit->model->layers_.size();
             
@@ -490,6 +726,8 @@ void KerasifyMsg::Perform()
             
             printf("Set up internal model data structure with %d layers\n", unit->numlayers);
             
+             */
+             
             // Run prediction.
             //Tensor out;
             
@@ -514,20 +752,242 @@ void KerasifyMsg::Perform()
             //delete unit->out;
             delete unit->model;
             
-            for (int k=0; k<unit->numlayers; ++k) {
-                
-                delete [] unit->layers[k].connectionmatrix;
-                delete [] unit->layers[k].bias;
-                delete [] unit->layers[k].output;
-                
-            }
+//            for (int k=0; k<unit->numlayers; ++k) {
+//
+//                delete [] unit->layers[k].connectionmatrix;
+//                delete [] unit->layers[k].bias;
+//                delete [] unit->layers[k].output;
+//
+//            }
+//
+//            delete [] unit->layers;
             
-            delete [] unit->layers;
+            DestroyNCNet(&(unit->net));
+            
             delete [] unit->input;
             
             
         }
         break;
+        
+        
+        //assumes input is a large enough space to fit largest internal layer, fine as assumption for non-redundant auto-encoders with hourglass layer shape, will lead to crash for redundant larger internal layers
+        case kCmd_RunDNNMorph : {
+            
+            //morph two NCNets for a particular layer, otherwise use net1
+            
+            //
+            float t = morph->interpolation;
+            int interplayer = morph->layertointerpolate;
+            int preorpost = morph->preorpost;
+            
+            
+            float * input = morph->input;
+            
+            
+            //later add output of layer interpolation, must calculate with both nets, at least up to output layer targeted
+            if(preorpost==0) {
+                
+            InterpolateNCNetLayer(&(morph->netinterpolation), &(morph->net1), &(morph->net2), t, interplayer);
+                
+            
+            for (int k=0; k<morph->netinterpolation.numlayers; ++k) {
+                
+                CalculateNCLayer(&(morph->netinterpolation.layers[k]),input);
+                
+                input = morph->netinterpolation.layers[k].output;
+                
+            }
+            
+            //could optionally overwrite or not overwrite until layer next touched, but then more confusing
+            //avoid leaving interpolated layers if dynamically swapping between layers to blend
+            RestoreNCNetLayer(&(morph->netinterpolation), &(morph->net1),interplayer);
+                
+            } else {
+                
+               //calculate with both nets up to and including interplayer
+                
+                float * input2 = morph->input2;
+                
+                int k;
+                
+                for (k=0; k<interplayer; ++k) {
+                    
+                    CalculateNCLayer(&(morph->net1.layers[k]),input);
+                    
+                    input = morph->net1.layers[k].output;
+                    
+                    //only work out other network at all previous stages if preorpost = 1, else just interpolate output on the one layer chosen, based on net1 input to that stage
+                    
+                    if(preorpost==1) {
+                    
+                    CalculateNCLayer(&(morph->net2.layers[k]),input2);
+                    
+                    input2 = morph->net2.layers[k].output;
+                        
+                    }
+                    
+                }
+                
+                CalculateNCLayer(&(morph->net1.layers[interplayer]),input);
+                
+                input = morph->net1.layers[interplayer].output;
+                
+                //only work out other network at all previous stages if preorpost = 1, else just interpolate output on the one layer chosen, based on net1 input to that stage
+                
+                if(preorpost==1) {
+                    
+                    CalculateNCLayer(&(morph->net2.layers[interplayer]),input2);
+                    
+                    input2 = morph->net2.layers[interplayer].output;
+                    
+                } else {
+                    
+                    //use input from net1 previous layer calculations
+                    CalculateNCLayer(&(morph->net2.layers[interplayer]),input);
+                    
+                    input2 = morph->net2.layers[interplayer].output;
+                    
+                }
+                
+                
+                //interpolate input2 into input
+                float oneminust = 1.0 - t;
+                
+                for (k=0; k<(morph->net1.layers[interplayer].numunits); ++k)
+                    input[k] = (oneminust *  input[k]) + (t * input2[k]);
+                
+                //now only need to calculate one
+                for (k=interplayer+1; k<morph->netinterpolation.numlayers; ++k) {
+                    
+                    CalculateNCLayer(&(morph->net1.layers[k]),input);
+                    
+                    input = morph->net1.layers[k].output;
+                    
+                }
+                
+                
+                
+            }
+            
+            
+            
+            //final input pointer points to final layer output
+            for (int i=0; i<2048; ++i) {
+                
+                morph->spectrumnow[i] = input[i]; //((i*i)%17)/17.0;
+            }
+            
+            //printf("unit %f %f %f\n", unit->spectrumnow[0],unit->spectrumnow[1],unit->spectrumnow[2]);
+   
+            morph->newoutput = true;
+            
+        }
+        break;
+        case kCmd_CtorDNNMorph :
+        {
+            morph->model1 = new KerasModel();
+            
+            morph->model1->LoadModel(morph->path1); //"DNN1.model");
+            
+            morph->model2 = new KerasModel();
+            
+            morph->model2->LoadModel(morph->path2);
+       
+            printf("loaded %s and %s\n",morph->path1,morph->path2);
+            
+            //copy model data to my own local struct
+            morph->input = new float[2048];
+            morph->input2 = new float[2048];
+            
+            InitialiseNCNetfromKerasModel(&(morph->net1), morph->model1);
+            InitialiseNCNetfromKerasModel(&(morph->net2), morph->model2);
+            
+            //assumes net1 and net2 same sizes and number of layers
+            InitialiseNCNetfromKerasModel(&(morph->netinterpolation), morph->model1);
+            
+            morph-> modelready = true;
+        }
+        break;
+        case kCmd_DtorDNNMorph :
+        {
+            delete morph->model1;
+            delete morph->model2;
+            
+            DestroyNCNet(&(morph->net1));
+            DestroyNCNet(&(morph->net2));
+        
+            delete [] morph->input;
+            delete [] morph->input2;
+        }
+        break;
+        
+        
+        
+        
+        case kCmd_Run2 : {
+            
+            int whichlayertostartwith = unit2->layertoactivate;
+            
+            if(whichlayertostartwith<0) whichlayertostartwith = 0;
+            
+            if(whichlayertostartwith>=unit2->net.numlayers) whichlayertostartwith = 0;
+            
+            float * input = unit2->buffer;
+            
+            for (int k=whichlayertostartwith; k<unit2->net.numlayers; ++k) {
+                
+                CalculateNCLayer(&(unit2->net.layers[k]),input);
+                
+                input = unit2->net.layers[k].output;
+                
+            }
+            
+            //final input pointer points to final layer output
+            for (int i=0; i<2048; ++i) {
+                
+                unit2->spectrumnow[i] = input[i]; //((i*i)%17)/17.0;
+            }
+            
+            //printf("unit %f %f %f\n", unit->spectrumnow[0],unit->spectrumnow[1],unit->spectrumnow[2]);
+      
+            unit2->newoutput = true;
+            
+            
+        }
+        break;
+        case kCmd_Ctor2 :
+        {
+            
+            unit2->model = new KerasModel();
+            
+            unit2->model->LoadModel(unit2->path); //"DNN1.model");
+    
+            printf("loaded %s\n",unit2->path);
+            
+            //copy model data to my own local struct
+            
+            unit2->input = new float[2048];
+            
+            InitialiseNCNetfromKerasModel(&(unit2->net), unit2->model);
+            
+            unit2-> modelready = true;
+            
+            
+        }
+        break;
+        case kCmd_Dtor2 :
+        {
+               delete unit2->model;
+      
+            DestroyNCNet(&(unit2->net));
+            
+            delete [] unit2->input;
+            
+        }
+        break;
+        
+        
     }
     
 }
@@ -597,6 +1057,14 @@ extern "C" {
     void PV_Kerasify_next(PV_Kerasify* unit, int inNumSamples);
     void PV_Kerasify_Ctor(PV_Kerasify* unit);
     void PV_Kerasify_Dtor(PV_Kerasify* unit);
+    
+    void PV_DNNMorph_next(PV_DNNMorph* unit, int inNumSamples);
+    void PV_DNNMorph_Ctor(PV_DNNMorph* unit);
+    void PV_DNNMorph_Dtor(PV_DNNMorph* unit);
+    
+    void PV_KerasifyActivationFromBuffer_next(PV_KerasifyActivationFromBuffer* unit, int inNumSamples);
+    void PV_KerasifyActivationFromBuffer_Ctor(PV_KerasifyActivationFromBuffer* unit);
+    void PV_KerasifyActivationFromBuffer_Dtor(PV_KerasifyActivationFromBuffer* unit);
     
 }
 
@@ -816,7 +1284,7 @@ void PV_Kerasify_next( PV_Kerasify *unit, int inNumSamples ) {
         float * input = unit->currentinputpointer;
         
         int layernum = (unit->amortisationcounter-1)/stepsperlayer; //split each layer into stepsperlayer
-        NCLayer * layernow = &unit->layers[layernum];
+        NCLayer * layernow = &unit->net.layers[layernum];
         int layerstep = (unit->amortisationcounter-1)%stepsperlayer;
         
         int unitsavailableinlayer = layernow->numunits;
@@ -845,7 +1313,7 @@ void PV_Kerasify_next( PV_Kerasify *unit, int inNumSamples ) {
         ++unit->amortisationcounter;
         
         //unit->amortisationcounter>unit->numlayers
-        if(unit->amortisationcounter>(unit->numlayers*stepsperlayer)) {
+        if(unit->amortisationcounter>(unit->net.numlayers*stepsperlayer)) {
             unit->amortisationcounter = 0;
             
             //final input pointer points to final layer output
@@ -915,7 +1383,7 @@ void PV_Kerasify_next( PV_Kerasify *unit, int inNumSamples ) {
      //            //temp_in = temp_out;
      //        //}
      //
-     //        //*out = temp_out;
+     //        *out = temp_out;
      //
      //        *(unit->out) = temp_out;
      //
@@ -959,6 +1427,416 @@ void PV_Kerasify_next( PV_Kerasify *unit, int inNumSamples ) {
 
 
 
+void PV_DNNMorph_Ctor( PV_DNNMorph* unit ) {
+    
+    unit->modelready = false;
+    unit->newoutput = false;
+    
+    World *world = unit->mWorld;
+    
+    unit->phases = (float * ) RTAlloc(unit->mWorld, 2048*sizeof(float));
+    unit->spectrumnow = (float * ) RTAlloc(unit->mWorld, 2048*sizeof(float));
+    
+    for (int i=0; i<2048; ++i) {
+        
+        unit->phases[i] = 0.0f;
+        unit->spectrumnow[i] = 0.0f;
+    }
+    
+    int pathsize1 = (int) ZIN0(4);
+    
+    unit->path1 = (char *) RTAlloc(unit->mWorld,sizeof(char)*(pathsize1+1));
+    
+    for(int i=0; i<pathsize1; ++i) {
+        unit->path1[i] = (char)ZIN0(5+i);
+    }
+    
+    unit->path1[pathsize1] = 0;
+    
+    int pathsize2 = (int) ZIN0(5+pathsize1);
+    
+    unit->path2 = (char *) RTAlloc(unit->mWorld,sizeof(char)*(pathsize2+1));
+    
+    for(int i=0; i<pathsize2; ++i) {
+        unit->path2[i] = (char)ZIN0(6+pathsize1+i);
+    }
+    
+    unit->path2[pathsize2] = 0;
+    
+    printf("constructor for PV_DNNMorph loading models\n%s\nand\n%s\n",unit->path1,unit->path2);
+    
+    // send a message to side thread
+    KerasifyMsg msg;
+    msg.morph = unit;
+    //msg.counter = messagecounter;
+    msg.mCommand = kCmd_CtorDNNMorph;
+    gKerasify->Run(msg);
+    
+    
+    SETCALC(PV_DNNMorph_next);
+    ZOUT0(0) = ZIN0(0);
+    
+}
+
+
+void PV_DNNMorph_Dtor( PV_DNNMorph* unit ) {
+    
+    RTFree(unit->mWorld, unit->path1);
+    RTFree(unit->mWorld, unit->path2);
+    
+    RTFree(unit->mWorld, unit->phases);
+    RTFree(unit->mWorld, unit->spectrumnow);
+    
+    // send a message to side thread
+    KerasifyMsg msg;
+    msg.morph = unit;
+    //msg.counter = messagecounter;
+    msg.mCommand = kCmd_DtorDNNMorph;
+    gKerasify->Run(msg);
+    
+    
+}
+
+
+
+
+void PV_DNNMorph_next( PV_DNNMorph *unit, int inNumSamples ) {
+    
+    int i,j,k;
+    
+    //    float interpolation; //from net1 to net2
+    //int layertointerpolate; //which layer
+    //int preorpost; //pre = interpolate weights before function calculation, post= interpolate outputs
+    
+    
+    unit->interpolation = ZIN0(1);
+    unit->layertointerpolate = (int) ZIN0(2);
+    unit->preorpost = (int) ZIN0(3); //0 = pre, otherwise post
+    
+        float fbufnum = ZIN0(0);
+        
+        //if (fbufnum < 0.f) return;
+        
+        if (fbufnum < 0.f) { ZOUT0(0) = -1.f; return; }
+        ZOUT0(0) = fbufnum;
+        
+        int ibufnum = (uint32)fbufnum;
+        
+        World *world = unit->mWorld;
+        SndBuf *buf;
+        
+        if (ibufnum >= world->mNumSndBufs) {
+            int localBufNum = ibufnum - world->mNumSndBufs;
+            Graph *parent = unit->mParent;
+            if(localBufNum <= parent->localBufNum) {
+                buf = parent->mLocalSndBufs + localBufNum;
+            } else {
+                buf = world->mSndBufs;
+            }
+        } else {
+            buf = world->mSndBufs + ibufnum;
+        }
+        
+        LOCK_SNDBUF(buf);
+        
+        
+        if(unit-> modelready) {
+            
+            int numbins = (buf->samples - 2) >> 1;
+            
+            float * data = buf->data; //just use it, it is in form dc, nyquist then real,imag pairs per ascending band
+            
+            //SCComplexBuf* complex = ToComplexApx(buf);
+            //SCComplex * data = complex->bin;
+            //also dc, nyquist
+            
+            float real, imag;
+            
+            real = data[0]; //DC
+            
+            //unit->in->data_[0] = 0.09163326695 * log((real*real) + 1);
+            //unit->spectrumnow[0] = 0.09163326695 * log((real*real) + 1);
+            unit->input[0] = 0.09163326695 * log((real*real) + 1);
+            unit->input2[0] =  unit->input[0];
+            
+            unit->phases[0] = 0.0;
+            
+            //printf("before prep data \n");
+            
+            for  (j=1;j<numbins; ++j) {
+                
+                int index = 2*j;
+                
+                real = data[index];
+                imag = data[index+1];
+                
+                //0.5*Math.log(power+1)*scalefactor; //(1/5.456533600026138)
+                 //relates to scale factor and log power encoding used for training neural net in first place with spectral data in range [0,1]
+                
+                unit->input[j] = 0.09163326695 * log((real*real) + (imag*imag) + 1);
+                unit->input2[j] =  unit->input[j];
+                
+                unit->phases[j] = atan2(imag, real);
+                
+            }
+            
+            //unit->currentinputpointer = unit->input;
+            
+            
+            if(unit->newoutput) {
+                
+                float magnitude, phase;
+                
+                for (i = 0; i < numbins; ++i) {
+                    
+                    magnitude = exp((unit->spectrumnow[i])*5.456533600026138)-1;
+                    
+                    phase = unit->phases[i];
+                    
+                      //return to magnitude not power
+                    data[2*i] =  magnitude * cos(phase);//Math.sqrt(Math.abs(outputspectra.w[i]));
+                    data[2*i+1] = magnitude * sin(phase); //0.0;
+           
+                }
+                
+                unit->newoutput = false; //or not needed at all?
+            }
+            
+            //printf("pre message %d model %p unit %p %p %p\n", messagecounter,(void*)g_model,(void*)unit, (void*)unit->in, (void*)unit->out);
+            
+                // send a message to side thread
+                KerasifyMsg msg;
+                msg.morph = unit;
+                msg.mCommand = kCmd_RunDNNMorph;
+   
+                //printf("sendMessage %d  %d %d %d\n", msg.mBufNum, msg.mPos, msg.mFrames, msg.mChannels);
+                gKerasify->Run(msg);
+            
+        }
+        
+        return;
+    
+}
+
+
+
+
+void PV_KerasifyActivationFromBuffer_Ctor( PV_KerasifyActivationFromBuffer* unit ) {
+    
+    //printf("PV_Kerasify_Ctor /n hello \n");
+
+    unit->modelready = false;
+    unit->newoutput = false;
+    
+    World *world = unit->mWorld;
+    
+    unit->phases = (float * ) RTAlloc(unit->mWorld, 2048*sizeof(float));
+    unit->spectrumnow = (float * ) RTAlloc(unit->mWorld, 2048*sizeof(float));
+    
+    for (int i=0; i<2048; ++i) {
+        
+        unit->phases[i] = 0.0f;
+        unit->spectrumnow[i] = 0.0f;
+    }
+    
+    int pathsize = (int) ZIN0(3);
+    
+    unit->path = (char *) RTAlloc(unit->mWorld,sizeof(char)*(pathsize+1));
+    
+    for(int i=0; i<pathsize; ++i) {
+        unit->path[i] = (char)ZIN0(4+i);
+    }
+    
+    unit->path[pathsize] = 0;
+    
+    printf("constructor for PV_KerasifyActivationFromBuffer loading %s\n",unit->path);
+    
+    // send a message to side thread
+    KerasifyMsg msg;
+    msg.unit2 = unit;
+    //msg.counter = messagecounter;
+    msg.mCommand = kCmd_Ctor2;
+    gKerasify->Run(msg);
+    
+    
+    SETCALC(PV_KerasifyActivationFromBuffer_next);
+    ZOUT0(0) = ZIN0(0);
+    
+}
+
+
+void PV_KerasifyActivationFromBuffer_Dtor( PV_KerasifyActivationFromBuffer* unit ) {
+    
+    RTFree(unit->mWorld, unit->path);
+    
+    RTFree(unit->mWorld, unit->phases);
+    RTFree(unit->mWorld, unit->spectrumnow);
+    
+    // send a message to side thread
+    KerasifyMsg msg;
+    msg.unit2 = unit;
+    //msg.counter = messagecounter;
+    msg.mCommand = kCmd_Dtor2;
+    gKerasify->Run(msg);
+    
+    
+}
+
+
+void PV_KerasifyActivationFromBuffer_next( PV_KerasifyActivationFromBuffer *unit, int inNumSamples ) {
+    
+    int i,j,k;
+    
+        float fbufnum = ZIN0(0);
+        
+        //if (fbufnum < 0.f) return;
+        
+        if (fbufnum < 0.f) { ZOUT0(0) = -1.f; return; }
+        ZOUT0(0) = fbufnum;
+        
+        int ibufnum = (uint32)fbufnum;
+        
+        World *world = unit->mWorld;
+        SndBuf *buf;
+        
+        if (ibufnum >= world->mNumSndBufs) {
+            int localBufNum = ibufnum - world->mNumSndBufs;
+            Graph *parent = unit->mParent;
+            if(localBufNum <= parent->localBufNum) {
+                buf = parent->mLocalSndBufs + localBufNum;
+            } else {
+                buf = world->mSndBufs;
+            }
+        } else {
+            buf = world->mSndBufs + ibufnum;
+        }
+        
+        LOCK_SNDBUF(buf);
+        
+        
+        if(unit-> modelready) {
+            
+            //get input buffer and layer to substitute
+            
+            float fbufnum2 = ZIN0(1);
+            
+            if (fbufnum2 < 0.f) return;
+            
+            int ibufnum2 = (uint32)fbufnum2;
+            
+            SndBuf *buf2;
+            
+            if (ibufnum2 >= world->mNumSndBufs) {
+                int localBufNum2 = ibufnum - world->mNumSndBufs;
+                Graph *parent2 = unit->mParent;
+                if(localBufNum2 <= parent2->localBufNum) {
+                    buf2 = parent2->mLocalSndBufs + localBufNum2;
+                } else {
+                    buf2 = world->mSndBufs;
+                }
+            } else {
+                buf2 = world->mSndBufs + ibufnum2;
+            }
+            
+            LOCK_SNDBUF(buf2);
+            
+            unit->buffer = buf2->data;
+            unit->buffersize = buf2->samples;
+            
+            unit->layertoactivate = (int)ZIN0(2);
+            
+            
+            int numbins = (buf->samples - 2) >> 1;
+            
+            float * data = buf->data; //just use it, it is in form dc, nyquist then real,imag pairs per ascending band
+            
+            //SCComplexBuf* complex = ToComplexApx(buf);
+            //SCComplex * data = complex->bin;
+            //also dc, nyquist
+            
+            float real, imag;
+            
+            real = data[0]; //DC
+            
+            //unit->in->data_[0] = 0.09163326695 * log((real*real) + 1);
+            //unit->spectrumnow[0] = 0.09163326695 * log((real*real) + 1);
+            unit->input[0] = 0.09163326695 * log((real*real) + 1);
+            
+            unit->phases[0] = 0.0;
+            
+            //printf("before prep data \n");
+            
+            for  (j=1;j<numbins; ++j) {
+                
+                int index = 2*j;
+                
+                real = data[index];
+                imag = data[index+1];
+                
+                //0.5*Math.log(power+1)*scalefactor; //(1/5.456533600026138)
+                //float ampnow = sqrt((real*real) + (imag*imag));
+                
+                //relates to scale factor and log power encoding used for training neural net in first place with spectral data in range [0,1]
+                
+                //unit->in->data_[j] = 0.09163326695 * log((real*real) + (imag*imag) + 1);
+                
+                //unit->spectrumnow[j] = 0.09163326695 * log((real*real) + (imag*imag) + 1);
+                
+                unit->input[j] = 0.09163326695 * log((real*real) + (imag*imag) + 1);
+                
+                unit->phases[j] = atan2(imag, real);
+                
+            }
+            
+            
+            if(unit->newoutput) {
+                //musn't be replaced mid use, so need to only transfer over from a completed run
+                //previous output data potentially
+                //power spectrum back to complex (eg no phase, real only)
+                
+                float magnitude, phase;
+                
+                for (i = 0; i < numbins; ++i) {
+                    
+                    //out.data_[i] unit->out->data_[i] unit->out->data_[i]
+                    magnitude = exp((unit->spectrumnow[i])*5.456533600026138)-1;
+                    
+                    phase = unit->phases[i];
+                    
+                    //fftdata[2*i] = outputspectra.w[i]; //act.w[i]; //
+                    //return to magnitude not power
+                    data[2*i] =  magnitude * cos(phase);//Math.sqrt(Math.abs(outputspectra.w[i]));
+                    data[2*i+1] = magnitude * sin(phase); //0.0;
+                    
+                    //if(i<10) fftdata[2*i] = 0.0;
+                    
+                }
+                
+                unit->newoutput = false; //or not needed at all?
+            }
+            
+            
+            //printf("pre message %d model %p unit %p %p %p\n", messagecounter,(void*)g_model,(void*)unit, (void*)unit->in, (void*)unit->out);
+            
+                // send a message to side thread
+                KerasifyMsg msg;
+                msg.unit2 = unit;
+                //msg.counter = messagecounter;
+                msg.mCommand = kCmd_Run2;
+                
+                //++messagecounter;
+                
+                
+                //printf("sendMessage %d  %d %d %d\n", msg.mBufNum, msg.mPos, msg.mFrames, msg.mChannels);
+                gKerasify->Run(msg);
+            
+        }
+        
+        return;
+ 
+}
+
+
 
 
 
@@ -981,7 +1859,8 @@ PluginLoad(PV_Kerasify)
     gKerasify->launchThread();
     
     DefinePVUnit(PV_Kerasify);
-    
+    DefinePVUnit(PV_DNNMorph);
+    DefinePVUnit(PV_KerasifyActivationFromBuffer);
     
     
 }

@@ -1,0 +1,90 @@
+TITLE:: PV_DNNMorph
+summary:: load two deep learning Keras models to process spectral frames, via the Kerasify C++ library, and allow morphing at the level of intermediate layers
+related:: Classes/FFT, Classes/IFFT, CLasses/PV_Kerasify, Classes/PV_KerasifyActivationFromBuffer
+categories:: UGens>FFT
+
+DESCRIPTION::
+load two deep learning Keras models to process spectral frames, via the Kerasify C++ library, and allow morphing at the level of intermediate layers.
+
+Calculation is potentially heavier than PV_Kerasify if both network models must be rendered up to the layer to be morphed (see the preorpost modes below); subsequent to the morph, only the primary (model 1) network layers are calculated.
+
+Note that unlike PV_Kerasify amortisation isn't available for this UGen, and all processing utilises a background thread.
+
+CLASSMETHODS::
+
+method::new
+
+argument::buffer
+
+FFT buffer.
+
+interpolation=0, layertointerpolate=1, preorpost=0, path1, path2
+
+
+argument::interpolation
+
+From 0 to 1, controlling the interpolation parameter; 0 is model 1, 1 is model 2, inbetween values mix data from the two models' corresponding layers
+
+argument::layertointerpolate
+
+Which layer of the networks to interpolate. Necessarily assumes the networks have the same architecture (number of layers and number of units at a given layer)
+
+argument::preorpost
+
+If 0 ('pre'), the UGen interpolates the weights and biases at the chosen layer between the two models, ahead of any calculation.
+
+If 1 ('post') the Ugen interpolates the outputs after that layer's calculation in both models.
+
+If 2, calculate the first net primarily, but at layertointerpolate calculate using that layer of the second net (based on the input so far from the first net) and interpolate the output back into the first net's output at the corresponding layer
+
+
+argument::path1
+
+String path to a model exported from the python deep learning library keras (link::https://keras.io::), by the kerasify C++ library (link::https://github.com/moof2k/kerasify::)
+
+argument::path2
+
+String path to a model exported from the python deep learning library keras (link::https://keras.io::), by the kerasify C++ library (link::https://github.com/moof2k/kerasify::)
+
+
+EXAMPLES::
+
+code::
+
+
+b = Buffer.read(s, Platform.resourceDir +/+ "sounds/a11wlk01.wav");
+
+
+
+(
+{
+var chain, in;
+
+	//in = SoundIn.ar;
+	//in = PlayBuf.ar(1,b,loop:1);
+	 in = WhiteNoise.ar * 0.1;
+
+	chain = FFT(LocalBuf(4096), in, 0.5, -1); //rectangular windowing
+
+	//2 models 2 layers
+	//chain = PV_DNNMorph(chain,MouseX.kr,MouseY.kr(0,1).round(1).poll,0,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNectasy100epochs.model", "/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNectasy10epochs.model");
+
+	//2 models 6 layers
+	//chain = PV_DNNMorph(chain,MouseX.kr,MouseY.kr(0,5).round(1).poll,0,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype6LayerRELU.model","/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype6LayerBottleneck6ActivationTypes.model");
+
+	//preorpost
+	//0 = interpolate weights and biases in a given layer
+	//1 = calculate both nets up to layertointerpolate then interpolate outputs back into first net
+	//2 = calculate first net primarily, but at layertointerpolate calculate using that layer of the second net and interpolate the output back into the first net's output at the corresponding layer
+
+	//test output of layer interpolation, compare also 2 (or any other value than 0 or 1) for preorpost, which just calculates the second net for one particular layer based on the input to that stage of the first net, interpolating it back into net1's output for that stage
+		chain = PV_DNNMorph(chain,MouseX.kr,MouseY.kr(0,5).round(1).poll,1,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype6LayerRELU.model","/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype6LayerBottleneck6ActivationTypes.model");
+
+
+	Limiter.ar(IFFT(chain));
+
+}.scope
+)
+
+
+::

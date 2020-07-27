@@ -1,0 +1,157 @@
+TITLE:: PV_KerasifyActivationFromBuffer
+summary:: load a deep learning Keras model to process spectral frames, via the Kerasify C++ library, and allow direct activations into its inner layers from a buffer
+related:: Classes/FFT, Classes/IFFT, CLasses/PV_DNNMorph, Classes/PV_Kerasify
+categories:: UGens>FFT
+
+DESCRIPTION::
+load a deep learning Keras model to process spectral frames, via the Kerasify C++ library, and allow direct activations into its inner layers from a buffer.
+
+The UGen is potentially less CPU intensive to run than PV_Kerasify since it only needs to calculate the network model from the layer after the buffer is used to read off activations (see layertoactivate argument below).
+
+Note that unlike PV_Kerasify amortisation isn't available for this UGen, and all processing utilises a background thread.
+
+CLASSMETHODS::
+
+method::new
+
+argument::buffer
+
+FFT buffer.
+
+argument::activationbuffer
+
+Buffer allocated on the server with enough space to cover values for all the units of any layer of the network.
+
+argument::layertoactivate
+
+Which layer to replace the outputs of with direct activation from buffer values.
+
+argument::path
+
+String path to a model exported from the python deep learning library keras (link::https://keras.io::), by the kerasify C++ library (link::https://github.com/moof2k/kerasify::)
+
+
+EXAMPLES::
+
+code::
+
+
+(
+b = Buffer.read(s, Platform.resourceDir +/+ "sounds/a11wlk01.wav");
+
+//b = Buffer.read(s,"/data/audio/SCsamp/acapella/thehype.wav");
+
+d = Buffer.alloc(s, 2048, 1);
+d.sine1(1.0 / [1, 2, 3, 4], true, true, true);
+)
+
+//d.plot
+
+(
+{
+var chain, in;
+
+	//in = SoundIn.ar;
+	in = PlayBuf.ar(1,b, loop:1);
+
+	chain = FFT(LocalBuf(4096), in, 0.5, -1); //rectangular windowing
+
+	//2 layers
+	//chain = PV_Kerasify(chain,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNectasy10epochs.model");
+	chain = PV_KerasifyActivationFromBuffer(chain,d,MouseX.kr(0,2),"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNectasy100epochs.model");
+
+	//4 layers
+	//chain = PV_Kerasify(chain,0,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype.model");
+
+	Limiter.ar(IFFT(chain));
+
+}.scope
+)
+
+
+
+c = Buffer.alloc(s,2048);
+
+//dynamically play with control buffer
+(
+e = {|layer=2|
+var chain, in;
+
+	//in = SoundIn.ar;
+	//else uses phase of input to reconstruct
+	in = Silent.ar; //PlayBuf.ar(1,b,loop:1);
+
+	BufWr.kr(MouseX.kr(-2,2),c,MouseY.kr(0,2047.9999));
+
+	chain = FFT(LocalBuf(4096), in, 0.5, -1); //rectangular windowing
+
+	//2 layers
+	//chain = PV_Kerasify(chain,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNectasy10epochs.model");
+	chain = PV_KerasifyActivationFromBuffer(chain,c,layer,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype6LayerRELU.model");
+
+	//4 layers
+	//chain = PV_Kerasify(chain,0,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype.model");
+
+	Limiter.ar(IFFT(chain));
+
+}.scope
+)
+
+// layer number 0 type 2 inputsize 2048 numunits 1024
+// layer number 1 type 2 inputsize 1024 numunits 512
+// layer number 2 type 2 inputsize 512 numunits 32
+// layer number 3 type 2 inputsize 32 numunits 32
+// layer number 4 type 2 inputsize 32 numunits 1024
+// layer number 5 type 1 inputsize 1024 numunits 2048
+
+e.set(\layer,6.rand.postln)
+
+c.plot
+
+
+
+
+
+c = Buffer.alloc(s,2048);
+
+//dynamically play with control buffer
+(
+SynthDef(\kerasifyact1,{|layer=2,activationbuffer|
+var chain, in;
+	var width = MouseX.kr(0.1,4); //if 10 can blow
+
+	//silent else uses phase of input to reconstruct
+	in = Silent.ar;
+
+	//set any buffer value
+	//Array.fill(128,{|i| BufWr.kr(SinOsc.kr(ExpRand(0.01,0.6))*2,c,i)});
+
+	Array.fill(2048,{|i| BufWr.kr(SinOsc.kr(ExpRand(0.01,0.6))*width,c,i)});
+
+	chain = FFT(LocalBuf(4096), in, 0.5, -1); //rectangular windowing
+
+//6 layers
+// layer number 0 type 2 inputsize 2048 numunits 1024
+// layer number 1 type 2 inputsize 1024 numunits 512
+// layer number 2 type 2 inputsize 512 numunits 32
+// layer number 3 type 2 inputsize 32 numunits 32
+// layer number 4 type 2 inputsize 32 numunits 1024
+// layer number 5 type 1 inputsize 1024 numunits 2048
+	chain = PV_KerasifyActivationFromBuffer(chain,activationbuffer,layer,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype6LayerRELU.model");
+
+	Out.ar(0,Limiter.ar(IFFT(chain))!2);
+
+}).load;
+)
+
+e = Synth(\kerasifyact1,[\activationbuffer,c])
+
+s.scope
+
+
+//dynamically choose which layer's input to replace (calculation only takes place from this layer on)
+e.set(\layer,2)
+
+
+
+::

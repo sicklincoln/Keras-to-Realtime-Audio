@@ -1,6 +1,6 @@
 TITLE:: PV_Kerasify
 summary:: load a deep learning Keras model to process spectral frames, via the Kerasify C++ library
-related:: Classes/FFT, Classes/IFFT
+related:: Classes/FFT, Classes/IFFT, CLasses/PV_DNNMorph, Classes/PV_KerasifyActivationFromBuffer
 categories:: UGens>FFT
 
 DESCRIPTION::
@@ -41,7 +41,7 @@ var chain, in;
 
 	chain = FFT(LocalBuf(4096), in, 0.5, -1); //rectangular windowing
 
-	chain = PV_Kerasify(chain,0,"/data/durham/code/python/keras/DNNectasy100epochs.model");
+	chain = PV_Kerasify(chain,0,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNectasy100epochs.model");
 
 	Limiter.ar(IFFT(chain));
 
