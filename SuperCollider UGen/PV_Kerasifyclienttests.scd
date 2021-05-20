@@ -8,16 +8,16 @@ b = Buffer.read(s, Platform.resourceDir +/+ "sounds/a11wlk01.wav");
 var chain, in;
 
 	//in = SoundIn.ar;
-	in = PlayBuf.ar(1,b);
+	in = PlayBuf.ar(1, b);
 
 	chain = FFT(LocalBuf(4096), in, 0.5, -1); //rectangular windowing
 
 	//2 layers
-	//chain = PV_Kerasify(chain,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNecstasy10epochs.model");
-	chain = PV_Kerasify(chain,0,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNecstasy100epochs.model");
+	//chain = PV_Kerasify(chain, "models/DNNecstasy10epochs.model".resolveRelative);
+	chain = PV_Kerasify(chain, 0, "models/DNNecstasy100epochs.model".resolveRelative);
 
 	//4 layers
-	//chain = PV_Kerasify(chain,0,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype.model");
+	//chain = PV_Kerasify(chain, 0, "models/DNNTheHype.model".resolveRelative);
 
 	Limiter.ar(IFFT(chain));
 
@@ -34,15 +34,15 @@ var chain, in;
 var chain, in;
 
 	//in = SoundIn.ar;
-	in = PlayBuf.ar(1,b);
+	in = PlayBuf.ar(1, b);
 
 	chain = FFT(LocalBuf(4096), in, 0.5, -1); //rectangular windowing
 
 	//2 layers
-	chain = PV_Kerasify(chain,15,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNecstasy100epochs.model");
+	chain = PV_Kerasify(chain, 15, "models/DNNecstasy100epochs.model".resolveRelative);
 
 	//4 layers
-	//chain = PV_Kerasify(chain,7,"/data/durham/grants/MIMIC/KerasToRealTimeAudio/SuperCollider UGen/models/DNNTheHype.model");
+	//chain = PV_Kerasify(chain, 7, "models/DNNTheHype.model".resolveRelative);
 
 
 	Limiter.ar(IFFT(chain));
